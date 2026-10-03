@@ -77,6 +77,7 @@ const DEFAULT_CONFIG = {
   logChannelId: null,
   lockdown: false,
   lockdownUntil: 0,
+  honeypotChannelId: null,
   warnings: {}
 };
 
@@ -94,8 +95,24 @@ function getConfig(guildId) {
     database[guildId].warnings = {};
   }
 
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      database[guildId],
+      "honeypotChannelId"
+    )
+  ) {
+    database[guildId].honeypotChannelId = null;
+    saveDatabase();
+  }
+
   return database[guildId];
 }
+
+/* =========================
+   EMBED COLOUR
+========================= */
+
+const EMBED_COLOR = "#1F71AD";
 
 /* =========================
    DISCORD CLIENT
@@ -104,17 +121,12 @@ function getConfig(guildId) {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages
   ]
 });
 
 const joinHistory = new Map();
-
-/* =========================
-   EMBED COLOUR
-========================= */
-
-const EMBED_COLOR = "#1F71AD";
 
 /* =========================
    SECURITY LOGGING
@@ -370,6 +382,75 @@ client.on(
 );
 
 /* =========================
+   HONEYPOT MESSAGE DETECTION
+========================= */
+
+client.on(
+  "messageCreate",
+  async message => {
+    if (!message.guild) {
+      return;
+    }
+
+    if (message.author.bot) {
+      return;
+    }
+
+    const config = getConfig(message.guild.id);
+
+    if (!config.honeypotChannelId) {
+      return;
+    }
+
+    if (
+      message.channel.id !==
+      config.honeypotChannelId
+    ) {
+      return;
+    }
+
+    const member = message.member;
+
+    if (!member) {
+      return;
+    }
+
+    if (
+      member.permissions.has(
+        PermissionFlagsBits.ManageGuild
+      )
+    ) {
+      return;
+    }
+
+    const deleted =
+      await message.delete().then(
+        () => true,
+        () => false
+      );
+
+    if (!deleted) {
+      console.error(
+        `Failed to delete honeypot message from ${message.author.tag}`
+      );
+    }
+
+    await securityLog(
+      message.guild,
+      "Honeypot Triggered",
+      `User: <@${message.author.id}>\n` +
+      `Channel: <#${message.channel.id}>\n` +
+      `User ID: ${message.author.id}\n\n` +
+      `The message was automatically deleted by AntiRaid.`
+    );
+
+    console.log(
+      `Honeypot triggered by ${message.author.tag} in ${message.guild.name}`
+    );
+  }
+);
+
+/* =========================
    SLASH COMMANDS
 ========================= */
 
@@ -451,6 +532,14 @@ client.on(
             inline: true
           },
           {
+            name: "Honeypot",
+            value:
+              config.honeypotChannelId
+                ? `<#${config.honeypotChannelId}>`
+                : "Not configured",
+            inline: true
+          },
+          {
             name: "Logs",
             value:
               config.logChannelId
@@ -464,6 +553,104 @@ client.on(
       return interaction.reply({
         embeds: [embed]
       });
+    }
+
+    /* =========================
+       /honeypot
+    ========================= */
+
+    if (interaction.commandName === "honeypot") {
+      if (!isAdmin) {
+        return interaction.reply({
+          content:
+            "You need Manage Server to use this command.",
+          ephemeral: true
+        });
+      }
+
+      const action =
+        interaction.options.getString("action");
+
+      if (action === "enable") {
+        const channel =
+          interaction.options.getChannel("channel");
+
+        if (!channel) {
+          return interaction.reply({
+            content:
+              "You must select a channel when enabling the honeypot.",
+            ephemeral: true
+          });
+        }
+
+        if (!channel.isTextBased()) {
+          return interaction.reply({
+            content:
+              "The honeypot channel must be a text channel.",
+            ephemeral: true
+          });
+        }
+
+        config.honeypotChannelId =
+          channel.id;
+
+        saveDatabase();
+
+        const embed = new EmbedBuilder()
+          .setColor(EMBED_COLOR)
+          .setTitle("Do Not Talk Here")
+          .setDescription(
+            "This channel is protected by AntiRaid.\n\n" +
+            "Please do not send messages in this channel.\n\n" +
+            "Messages sent here may be automatically removed and recorded by the security system."
+          )
+          .setTimestamp()
+          .setFooter({
+            text: "AntiRaid Security"
+          });
+
+        await channel.send({
+          embeds: [embed]
+        }).catch(() => {});
+
+        const confirmation = new EmbedBuilder()
+          .setColor(EMBED_COLOR)
+          .setTitle("Honeypot Enabled")
+          .setDescription(
+            `The honeypot is now active in ${channel}.`
+          )
+          .setTimestamp();
+
+        return interaction.reply({
+          embeds: [confirmation]
+        });
+      }
+
+      if (action === "disable") {
+        if (!config.honeypotChannelId) {
+          return interaction.reply({
+            content:
+              "The honeypot is not currently enabled.",
+            ephemeral: true
+          });
+        }
+
+        config.honeypotChannelId = null;
+
+        saveDatabase();
+
+        const embed = new EmbedBuilder()
+          .setColor(EMBED_COLOR)
+          .setTitle("Honeypot Disabled")
+          .setDescription(
+            "The AntiRaid honeypot has been disabled."
+          )
+          .setTimestamp();
+
+        return interaction.reply({
+          embeds: [embed]
+        });
+      }
     }
 
     /* =========================
