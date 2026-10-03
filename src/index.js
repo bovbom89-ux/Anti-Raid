@@ -114,7 +114,7 @@ const joinHistory = new Map();
    EMBED COLOUR
 ========================= */
 
-const EMBED_COLOR = "#062E61";
+const EMBED_COLOR = "#1F71AD";
 
 /* =========================
    SECURITY LOGGING
