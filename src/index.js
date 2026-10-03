@@ -7,8 +7,12 @@ const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
-  PermissionFlagsBits
+  PermissionFlagsBits,
+  REST,
+  Routes
 } = require("discord.js");
+
+const commands = require("./deploy-commands");
 
 const TOKEN = process.env.DISCORD_TOKEN;
 
