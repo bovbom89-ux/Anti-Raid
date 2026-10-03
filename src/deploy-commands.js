@@ -172,6 +172,33 @@ const commands = [
       option
         .setName("user")
         .setDescription("User")
+    ),
+
+  new SlashCommandBuilder()
+    .setName("honeypot")
+    .setDescription("Configure the AntiRaid honeypot")
+    .addStringOption(option =>
+      option
+        .setName("action")
+        .setDescription("Choose whether to enable or disable the honeypot")
+        .setRequired(true)
+        .addChoices(
+          {
+            name: "Enable",
+            value: "enable"
+          },
+          {
+            name: "Disable",
+            value: "disable"
+          }
+        )
+    )
+    .addChannelOption(option =>
+      option
+        .setName("channel")
+        .setDescription("Channel to use as the honeypot")
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(false)
     )
 ].map(command => command.toJSON());
 
