@@ -8,6 +8,12 @@ const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ActionRowBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   PermissionFlagsBits,
   REST,
   Routes
@@ -66,7 +72,7 @@ function saveDatabase() {
 }
 
 /* =========================
-   DEFAULT CONFIG
+   CONFIGURATION
 ========================= */
 
 const DEFAULT_CONFIG = {
@@ -74,10 +80,19 @@ const DEFAULT_CONFIG = {
   joinThreshold: 8,
   joinWindowSeconds: 10,
   lockdownMinutes: 10,
+
   logChannelId: null,
+
   lockdown: false,
   lockdownUntil: 0,
+
   honeypotChannelId: null,
+  honeypotMessageId: null,
+  honeypotKicks: 0,
+
+  verifyRoleId: null,
+  verifyMessageId: null,
+
   warnings: {}
 };
 
@@ -91,28 +106,59 @@ function getConfig(guildId) {
     saveDatabase();
   }
 
-  if (!database[guildId].warnings) {
-    database[guildId].warnings = {};
+  const config = database[guildId];
+
+  if (!config.warnings) {
+    config.warnings = {};
   }
 
-  if (
-    !Object.prototype.hasOwnProperty.call(
-      database[guildId],
-      "honeypotChannelId"
-    )
-  ) {
-    database[guildId].honeypotChannelId = null;
-    saveDatabase();
+  if (!Object.prototype.hasOwnProperty.call(
+    config,
+    "honeypotChannelId"
+  )) {
+    config.honeypotChannelId = null;
   }
 
-  return database[guildId];
+  if (!Object.prototype.hasOwnProperty.call(
+    config,
+    "honeypotMessageId"
+  )) {
+    config.honeypotMessageId = null;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(
+    config,
+    "honeypotKicks"
+  )) {
+    config.honeypotKicks = 0;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(
+    config,
+    "verifyRoleId"
+  )) {
+    config.verifyRoleId = null;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(
+    config,
+    "verifyMessageId"
+  )) {
+    config.verifyMessageId = null;
+  }
+
+  return config;
 }
 
 /* =========================
-   EMBED COLOUR
+   CONSTANTS
 ========================= */
 
 const EMBED_COLOR = "#1F71AD";
+
+const joinHistory = new Map();
+
+const verificationCodes = new Map();
 
 /* =========================
    DISCORD CLIENT
@@ -122,17 +168,20 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
   ]
 });
-
-const joinHistory = new Map();
 
 /* =========================
    SECURITY LOGGING
 ========================= */
 
-async function securityLog(guild, title, description) {
+async function securityLog(
+  guild,
+  title,
+  description
+) {
   const config = getConfig(guild.id);
 
   if (!config.logChannelId) {
@@ -165,7 +214,10 @@ async function securityLog(guild, title, description) {
    LOCKDOWN
 ========================= */
 
-async function startLockdown(guild, reason) {
+async function startLockdown(
+  guild,
+  reason
+) {
   const config = getConfig(guild.id);
 
   if (config.lockdown) {
@@ -193,7 +245,10 @@ async function startLockdown(guild, reason) {
   );
 }
 
-async function endLockdown(guild, automatic = true) {
+async function endLockdown(
+  guild,
+  automatic = true
+) {
   const config = getConfig(guild.id);
 
   if (!config.lockdown) {
@@ -221,42 +276,53 @@ async function endLockdown(guild, automatic = true) {
 }
 
 /* =========================
-   SERVER LOCK / UNLOCK
+   SERVER LOCK
 ========================= */
 
 async function lockServer(guild) {
-  const channels = guild.channels.cache.filter(
-    channel =>
-      channel.isTextBased() &&
-      channel.permissionsFor(
-        guild.roles.everyone
-      )?.has(
-        PermissionFlagsBits.SendMessages
-      )
-  );
+  const channels =
+    guild.channels.cache.filter(
+      channel =>
+        channel.isTextBased() &&
+        channel.permissionsFor(
+          guild.roles.everyone
+        )?.has(
+          PermissionFlagsBits.SendMessages
+        )
+    );
 
-  for (const channel of channels.values()) {
-    await channel.permissionOverwrites.edit(
-      guild.roles.everyone,
-      {
-        SendMessages: false
-      }
-    ).catch(() => {});
+  for (
+    const channel of channels.values()
+  ) {
+    await channel.permissionOverwrites
+      .edit(
+        guild.roles.everyone,
+        {
+          SendMessages: false
+        }
+      )
+      .catch(() => {});
   }
 }
 
 async function unlockServer(guild) {
-  const channels = guild.channels.cache.filter(
-    channel => channel.isTextBased()
-  );
+  const channels =
+    guild.channels.cache.filter(
+      channel =>
+        channel.isTextBased()
+    );
 
-  for (const channel of channels.values()) {
-    await channel.permissionOverwrites.edit(
-      guild.roles.everyone,
-      {
-        SendMessages: null
-      }
-    ).catch(() => {});
+  for (
+    const channel of channels.values()
+  ) {
+    await channel.permissionOverwrites
+      .edit(
+        guild.roles.everyone,
+        {
+          SendMessages: null
+        }
+      )
+      .catch(() => {});
   }
 }
 
@@ -267,7 +333,9 @@ async function unlockServer(guild) {
 setInterval(async () => {
   const now = Date.now();
 
-  for (const guild of client.guilds.cache.values()) {
+  for (
+    const guild of client.guilds.cache.values()
+  ) {
     const config = getConfig(guild.id);
 
     if (
@@ -275,55 +343,205 @@ setInterval(async () => {
       config.lockdownUntil &&
       now >= config.lockdownUntil
     ) {
-      await endLockdown(guild, true);
+      await endLockdown(
+        guild,
+        true
+      );
     }
   }
 }, 15000);
 
 /* =========================
-   BOT READY
+   HONEYPOT
 ========================= */
 
-client.once("ready", async () => {
-  console.log(
-    `AntiRaid is online as ${client.user.tag}`
-  );
+function createHoneypotEmbed(
+  kickCount
+) {
+  return new EmbedBuilder()
+    .setColor(EMBED_COLOR)
+    .setTitle("Do Not Talk Here")
+    .setDescription(
+      "This channel is protected by AntiRaid.\n\n" +
+      "Please do not send messages in this channel.\n\n" +
+      "Messages sent here may result in automatic removal and disciplinary action."
+    )
+    .setTimestamp()
+    .setFooter({
+      text: "AntiRaid Security"
+    });
+}
 
-  console.log(
-    `Serving ${client.guilds.cache.size} server(s).`
-  );
+function createHoneypotButtons(
+  kickCount
+) {
+  const button =
+    new ButtonBuilder()
+      .setCustomId(
+        "honeypot_kick_counter"
+      )
+      .setLabel(
+        `Kicks: ${kickCount}`
+      )
+      .setStyle(
+        ButtonStyle.Secondary
+      )
+      .setDisabled(true);
 
-  try {
-    const rest = new REST({
-      version: "10"
-    }).setToken(
-      process.env.DISCORD_TOKEN
-    );
+  return new ActionRowBuilder()
+    .addComponents(button);
+}
 
-    console.log(
-      "Registering slash commands..."
-    );
+async function updateHoneypotMessage(
+  guild
+) {
+  const config = getConfig(guild.id);
 
-    await rest.put(
-      Routes.applicationCommands(
-        process.env.DISCORD_CLIENT_ID
-      ),
-      {
-        body: commands
-      }
-    );
-
-    console.log(
-      `${commands.length} slash commands registered.`
-    );
-  } catch (error) {
-    console.error(
-      "Failed to register slash commands:"
-    );
-
-    console.error(error);
+  if (
+    !config.honeypotChannelId ||
+    !config.honeypotMessageId
+  ) {
+    return;
   }
-});
+
+  const channel =
+    guild.channels.cache.get(
+      config.honeypotChannelId
+    );
+
+  if (
+    !channel ||
+    !channel.isTextBased()
+  ) {
+    return;
+  }
+
+  const message =
+    await channel.messages.fetch(
+      config.honeypotMessageId
+    ).catch(() => null);
+
+  if (!message) {
+    return;
+  }
+
+  await message.edit({
+    embeds: [
+      createHoneypotEmbed(
+        config.honeypotKicks
+      )
+    ],
+    components: [
+      createHoneypotButtons(
+        config.honeypotKicks
+      )
+    ]
+  }).catch(() => {});
+}
+
+/* =========================
+   VERIFICATION
+========================= */
+
+function generateVerificationCode() {
+  return Math.floor(
+    100000 +
+    Math.random() * 900000
+  ).toString();
+}
+
+function createVerificationEmbed() {
+  return new EmbedBuilder()
+    .setColor(EMBED_COLOR)
+    .setTitle("Server Verification")
+    .setDescription(
+      "Click the button below to begin verification.\n\n" +
+      "You will receive a verification code. " +
+      "Enter the code to receive the Verified role."
+    )
+    .setFooter({
+      text: "AntiRaid Verification"
+    });
+}
+
+function createVerificationButtons() {
+  const button =
+    new ButtonBuilder()
+      .setCustomId(
+        "start_verification"
+      )
+      .setLabel("Verify")
+      .setStyle(
+        ButtonStyle.Primary
+      );
+
+  return new ActionRowBuilder()
+    .addComponents(button);
+}
+
+function createEnterCodeButton() {
+  const button =
+    new ButtonBuilder()
+      .setCustomId(
+        "enter_verification_code"
+      )
+      .setLabel("Enter Code")
+      .setStyle(
+        ButtonStyle.Primary
+      );
+
+  return new ActionRowBuilder()
+    .addComponents(button);
+}
+
+/* =========================
+   READY
+========================= */
+
+client.once(
+  "ready",
+  async () => {
+    console.log(
+      `AntiRaid is online as ${client.user.tag}`
+    );
+
+    console.log(
+      `Serving ${client.guilds.cache.size} server(s).`
+    );
+
+    try {
+      const rest =
+        new REST({
+          version: "10"
+        }).setToken(
+          process.env.DISCORD_TOKEN
+        );
+
+      console.log(
+        "Registering slash commands..."
+      );
+
+      await rest.put(
+        Routes.applicationCommands(
+          process.env.DISCORD_CLIENT_ID
+        ),
+        {
+          body: commands
+        }
+      );
+
+      console.log(
+        `${commands.length} slash commands registered.`
+      );
+    } catch (error) {
+      console.error(
+        "Failed to register slash commands:"
+      );
+
+      console.error(error);
+    }
+  }
+);
 
 /* =========================
    MEMBER JOIN DETECTION
@@ -342,13 +560,17 @@ client.on(
     const now = Date.now();
 
     const previous =
-      joinHistory.get(guild.id) || [];
+      joinHistory.get(
+        guild.id
+      ) || [];
 
-    const recent = previous.filter(
-      timestamp =>
-        now - timestamp <
-        config.joinWindowSeconds * 1000
-    );
+    const recent =
+      previous.filter(
+        timestamp =>
+          now - timestamp <
+          config.joinWindowSeconds *
+          1000
+      );
 
     recent.push(now);
 
@@ -362,7 +584,8 @@ client.on(
     );
 
     if (
-      recent.length >= config.joinThreshold &&
+      recent.length >=
+      config.joinThreshold &&
       !config.lockdown
     ) {
       await startLockdown(
@@ -396,9 +619,12 @@ client.on(
       return;
     }
 
-    const config = getConfig(message.guild.id);
+    const guild = message.guild;
+    const config = getConfig(guild.id);
 
-    if (!config.honeypotChannelId) {
+    if (
+      !config.honeypotChannelId
+    ) {
       return;
     }
 
@@ -409,7 +635,8 @@ client.on(
       return;
     }
 
-    const member = message.member;
+    const member =
+      message.member;
 
     if (!member) {
       return;
@@ -423,41 +650,324 @@ client.on(
       return;
     }
 
-    const deleted =
-      await message.delete().then(
-        () => true,
-        () => false
-      );
+    await message.delete()
+      .catch(() => {});
 
-    if (!deleted) {
-      console.error(
-        `Failed to delete honeypot message from ${message.author.tag}`
-      );
+    let kicked = false;
+
+    if (member.kickable) {
+      kicked =
+        await member
+          .kick(
+            "AntiRaid honeypot triggered."
+          )
+          .then(
+            () => true,
+            () => false
+          );
     }
 
-    await securityLog(
-      message.guild,
-      "Honeypot Triggered",
-      `User: <@${message.author.id}>\n` +
-      `Channel: <#${message.channel.id}>\n` +
-      `User ID: ${message.author.id}\n\n` +
-      `The message was automatically deleted by AntiRaid.`
-    );
+    if (kicked) {
+      config.honeypotKicks++;
 
-    console.log(
-      `Honeypot triggered by ${message.author.tag} in ${message.guild.name}`
-    );
+      saveDatabase();
+
+      await updateHoneypotMessage(
+        guild
+      );
+
+      await securityLog(
+        guild,
+        "Honeypot Triggered",
+        `User: <@${member.id}>\n` +
+        `User ID: ${member.id}\n` +
+        `Channel: <#${message.channel.id}>\n\n` +
+        "The message was deleted and the member was kicked."
+      );
+
+      console.log(
+        `Honeypot kick: ${member.user.tag}`
+      );
+    } else {
+      await securityLog(
+        guild,
+        "Honeypot Triggered",
+        `User: <@${member.id}>\n` +
+        `User ID: ${member.id}\n` +
+        `Channel: <#${message.channel.id}>\n\n` +
+        "The message was deleted, but the member could not be kicked."
+      );
+    }
   }
 );
 
 /* =========================
-   SLASH COMMANDS
+   INTERACTIONS
 ========================= */
 
 client.on(
   "interactionCreate",
   async interaction => {
-    if (!interaction.isChatInputCommand()) {
+
+    /* =========================
+       VERIFY BUTTON
+    ========================= */
+
+    if (
+      interaction.isButton() &&
+      interaction.customId ===
+      "start_verification"
+    ) {
+      const guild =
+        interaction.guild;
+
+      if (!guild) {
+        return interaction.reply({
+          content:
+            "Verification can only be used inside a server.",
+          ephemeral: true
+        });
+      }
+
+      const config =
+        getConfig(guild.id);
+
+      if (!config.verifyRoleId) {
+        return interaction.reply({
+          content:
+            "Verification has not been configured by the server administrators.",
+          ephemeral: true
+        });
+      }
+
+      const role =
+        guild.roles.cache.get(
+          config.verifyRoleId
+        );
+
+      if (!role) {
+        return interaction.reply({
+          content:
+            "The configured Verified role could not be found.",
+          ephemeral: true
+        });
+      }
+
+      if (
+        interaction.member.roles.cache.has(
+          role.id
+        )
+      ) {
+        return interaction.reply({
+          content:
+            "You are already verified.",
+          ephemeral: true
+        });
+      }
+
+      const code =
+        generateVerificationCode();
+
+      verificationCodes.set(
+        `${guild.id}:${interaction.user.id}`,
+        {
+          code,
+          expires:
+            Date.now() +
+            5 * 60 * 1000
+        }
+      );
+
+      return interaction.reply({
+        content:
+          `Your verification code is:\n\n**${code}**\n\n` +
+          "This code expires in 5 minutes.\n\n" +
+          "Press Enter Code below to continue.",
+        components: [
+          createEnterCodeButton()
+        ],
+        ephemeral: true
+      });
+    }
+
+    /* =========================
+       ENTER CODE BUTTON
+    ========================= */
+
+    if (
+      interaction.isButton() &&
+      interaction.customId ===
+      "enter_verification_code"
+    ) {
+      const modal =
+        new ModalBuilder()
+          .setCustomId(
+            "verification_code_modal"
+          )
+          .setTitle(
+            "Verification"
+          );
+
+      const input =
+        new TextInputBuilder()
+          .setCustomId(
+            "verification_code"
+          )
+          .setLabel(
+            "Enter your verification code"
+          )
+          .setPlaceholder(
+            "Enter the 6-digit code"
+          )
+          .setStyle(
+            TextInputStyle.Short
+          )
+          .setMinLength(6)
+          .setMaxLength(6)
+          .setRequired(true);
+
+      const row =
+        new ActionRowBuilder()
+          .addComponents(input);
+
+      modal.addComponents(row);
+
+      return interaction.showModal(
+        modal
+      );
+    }
+
+    /* =========================
+       VERIFICATION MODAL
+    ========================= */
+
+    if (
+      interaction.isModalSubmit() &&
+      interaction.customId ===
+      "verification_code_modal"
+    ) {
+      const guild =
+        interaction.guild;
+
+      if (!guild) {
+        return interaction.reply({
+          content:
+            "Verification can only be used inside a server.",
+          ephemeral: true
+        });
+      }
+
+      const config =
+        getConfig(guild.id);
+
+      const enteredCode =
+        interaction.fields
+          .getTextInputValue(
+            "verification_code"
+          )
+          .trim();
+
+      const key =
+        `${guild.id}:${interaction.user.id}`;
+
+      const stored =
+        verificationCodes.get(key);
+
+      if (!stored) {
+        return interaction.reply({
+          content:
+            "You do not have an active verification code. Please press Verify again.",
+          ephemeral: true
+        });
+      }
+
+      if (
+        Date.now() >
+        stored.expires
+      ) {
+        verificationCodes.delete(key);
+
+        return interaction.reply({
+          content:
+            "Your verification code has expired. Please press Verify again.",
+          ephemeral: true
+        });
+      }
+
+      if (
+        enteredCode !==
+        stored.code
+      ) {
+        return interaction.reply({
+          content:
+            "That verification code is incorrect.",
+          ephemeral: true
+        });
+      }
+
+      const role =
+        guild.roles.cache.get(
+          config.verifyRoleId
+        );
+
+      if (!role) {
+        return interaction.reply({
+          content:
+            "The Verified role could not be found.",
+          ephemeral: true
+        });
+      }
+
+      const member =
+        await guild.members.fetch(
+          interaction.user.id
+        ).catch(
+          () => null
+        );
+
+      if (!member) {
+        return interaction.reply({
+          content:
+            "Your server member information could not be found.",
+          ephemeral: true
+        });
+      }
+
+      if (!role.editable) {
+        return interaction.reply({
+          content:
+            "AntiRaid cannot give you the Verified role. Make sure the bot role is above the Verified role.",
+          ephemeral: true
+        });
+      }
+
+      await member.roles.add(
+        role,
+        "AntiRaid verification"
+      );
+
+      verificationCodes.delete(key);
+
+      await securityLog(
+        guild,
+        "Member Verified",
+        `<@${interaction.user.id}> successfully completed verification.`
+      );
+
+      return interaction.reply({
+        content:
+          "Verification successful. You have been given the Verified role.",
+        ephemeral: true
+      });
+    }
+
+    /* =========================
+       SLASH COMMAND CHECK
+    ========================= */
+
+    if (
+      !interaction.isChatInputCommand()
+    ) {
       return;
     }
 
@@ -469,8 +979,11 @@ client.on(
       });
     }
 
-    const guild = interaction.guild;
-    const config = getConfig(guild.id);
+    const guild =
+      interaction.guild;
+
+    const config =
+      getConfig(guild.id);
 
     const isAdmin =
       interaction.memberPermissions?.has(
@@ -481,7 +994,10 @@ client.on(
        /setup
     ========================= */
 
-    if (interaction.commandName === "setup") {
+    if (
+      interaction.commandName ===
+      "setup"
+    ) {
       if (!isAdmin) {
         return interaction.reply({
           content:
@@ -507,48 +1023,74 @@ client.on(
        /security
     ========================= */
 
-    if (interaction.commandName === "security") {
-      const embed = new EmbedBuilder()
-        .setColor(EMBED_COLOR)
-        .setTitle("AntiRaid Security")
-        .setDescription(
-          config.enabled
-            ? "Protection is enabled."
-            : "Protection is disabled."
-        )
-        .addFields(
-          {
-            name: "Raid Detection",
-            value:
-              `${config.joinThreshold} joins / ${config.joinWindowSeconds}s`,
-            inline: true
-          },
-          {
-            name: "Lockdown",
-            value:
-              config.lockdown
-                ? "Active"
-                : "Inactive",
-            inline: true
-          },
-          {
-            name: "Honeypot",
-            value:
-              config.honeypotChannelId
-                ? `<#${config.honeypotChannelId}>`
-                : "Not configured",
-            inline: true
-          },
-          {
-            name: "Logs",
-            value:
-              config.logChannelId
-                ? `<#${config.logChannelId}>`
-                : "Not configured",
-            inline: true
-          }
-        )
-        .setTimestamp();
+    if (
+      interaction.commandName ===
+      "security"
+    ) {
+      const embed =
+        new EmbedBuilder()
+          .setColor(EMBED_COLOR)
+          .setTitle(
+            "AntiRaid Security"
+          )
+          .setDescription(
+            config.enabled
+              ? "Protection is enabled."
+              : "Protection is disabled."
+          )
+          .addFields(
+            {
+              name:
+                "Raid Detection",
+              value:
+                `${config.joinThreshold} joins / ${config.joinWindowSeconds}s`,
+              inline: true
+            },
+            {
+              name:
+                "Lockdown",
+              value:
+                config.lockdown
+                  ? "Active"
+                  : "Inactive",
+              inline: true
+            },
+            {
+              name:
+                "Honeypot",
+              value:
+                config.honeypotChannelId
+                  ? `<#${config.honeypotChannelId}>`
+                  : "Not configured",
+              inline: true
+            },
+            {
+              name:
+                "Honeypot Kicks",
+              value:
+                `${config.honeypotKicks}`,
+              inline: true
+            },
+            {
+              name:
+                "Verified Role",
+              value:
+                config.verifyRoleId
+                  ? `<@&${config.verifyRoleId}>`
+                  : "Not configured",
+              inline: true
+            },
+            {
+              name:
+                "Logs",
+              value:
+                config.logChannelId
+                  ? `<#${config.logChannelId}>`
+                  : "Not configured",
+              inline: true
+            }
+          )
+          .setTimestamp();
 
       return interaction.reply({
         embeds: [embed]
@@ -556,24 +1098,144 @@ client.on(
     }
 
     /* =========================
-       /honeypot
+       /verify
     ========================= */
 
-    if (interaction.commandName === "honeypot") {
+    if (
+      interaction.commandName ===
+      "verify"
+    ) {
       if (!isAdmin) {
         return interaction.reply({
           content:
-            "You need Manage Server to use this command.",
+            "You need Manage Server permission.",
+          ephemeral: true
+        });
+      }
+
+      if (!config.verifyRoleId) {
+        return interaction.reply({
+          content:
+            "Please configure the Verified role first using /setverify.",
+          ephemeral: true
+        });
+      }
+
+      const role =
+        guild.roles.cache.get(
+          config.verifyRoleId
+        );
+
+      if (!role) {
+        return interaction.reply({
+          content:
+            "The configured Verified role no longer exists.",
+          ephemeral: true
+        });
+      }
+
+      const message =
+        await interaction.channel.send({
+          embeds: [
+            createVerificationEmbed()
+          ],
+          components: [
+            createVerificationButtons()
+          ]
+        });
+
+      config.verifyMessageId =
+        message.id;
+
+      saveDatabase();
+
+      return interaction.reply({
+        content:
+          "The verification panel has been sent.",
+        ephemeral: true
+      });
+    }
+
+    /* =========================
+       /setverify
+    ========================= */
+
+    if (
+      interaction.commandName ===
+      "setverify"
+    ) {
+      if (!isAdmin) {
+        return interaction.reply({
+          content:
+            "You need Manage Server permission.",
+          ephemeral: true
+        });
+      }
+
+      const role =
+        interaction.options.getRole(
+          "role"
+        );
+
+      if (
+        role.id ===
+        guild.roles.everyone.id
+      ) {
+        return interaction.reply({
+          content:
+            "You cannot use @everyone as the Verified role.",
+          ephemeral: true
+        });
+      }
+
+      if (!role.editable) {
+        return interaction.reply({
+          content:
+            "AntiRaid cannot assign this role. Move the AntiRaid bot role above the Verified role.",
+          ephemeral: true
+        });
+      }
+
+      config.verifyRoleId =
+        role.id;
+
+      saveDatabase();
+
+      return interaction.reply({
+        content:
+          `The Verified role has been set to ${role}.`
+      });
+    }
+
+    /* =========================
+       /honeypot
+    ========================= */
+
+    if (
+      interaction.commandName ===
+      "honeypot"
+    ) {
+      if (!isAdmin) {
+        return interaction.reply({
+          content:
+            "You need Manage Server permission.",
           ephemeral: true
         });
       }
 
       const action =
-        interaction.options.getString("action");
+        interaction.options.getString(
+          "action"
+        );
 
-      if (action === "enable") {
+      if (
+        action ===
+        "enable"
+      ) {
         const channel =
-          interaction.options.getChannel("channel");
+          interaction.options.getChannel(
+            "channel"
+          );
 
         if (!channel) {
           return interaction.reply({
@@ -583,51 +1245,47 @@ client.on(
           });
         }
 
-        if (!channel.isTextBased()) {
-          return interaction.reply({
-            content:
-              "The honeypot channel must be a text channel.",
-            ephemeral: true
-          });
-        }
-
         config.honeypotChannelId =
           channel.id;
 
+        config.honeypotKicks = 0;
+        config.honeypotMessageId =
+          null;
+
         saveDatabase();
 
-        const embed = new EmbedBuilder()
-          .setColor(EMBED_COLOR)
-          .setTitle("Do Not Talk Here")
-          .setDescription(
-            "This channel is protected by AntiRaid.\n\n" +
-            "Please do not send messages in this channel.\n\n" +
-            "Messages sent here may be automatically removed and recorded by the security system."
-          )
-          .setTimestamp()
-          .setFooter({
-            text: "AntiRaid Security"
-          });
+        const message =
+          await channel.send({
+            embeds: [
+              createHoneypotEmbed(0)
+            ],
+            components: [
+              createHoneypotButtons(0)
+            ]
+          }).catch(
+            () => null
+          );
 
-        await channel.send({
-          embeds: [embed]
-        }).catch(() => {});
+        if (message) {
+          config.honeypotMessageId =
+            message.id;
 
-        const confirmation = new EmbedBuilder()
-          .setColor(EMBED_COLOR)
-          .setTitle("Honeypot Enabled")
-          .setDescription(
-            `The honeypot is now active in ${channel}.`
-          )
-          .setTimestamp();
+          saveDatabase();
+        }
 
         return interaction.reply({
-          embeds: [confirmation]
+          content:
+            `The honeypot has been enabled in ${channel}.`
         });
       }
 
-      if (action === "disable") {
-        if (!config.honeypotChannelId) {
+      if (
+        action ===
+        "disable"
+      ) {
+        if (
+          !config.honeypotChannelId
+        ) {
           return interaction.reply({
             content:
               "The honeypot is not currently enabled.",
@@ -635,20 +1293,42 @@ client.on(
           });
         }
 
-        config.honeypotChannelId = null;
+        const oldChannel =
+          guild.channels.cache.get(
+            config.honeypotChannelId
+          );
+
+        if (
+          oldChannel &&
+          oldChannel.isTextBased() &&
+          config.honeypotMessageId
+        ) {
+          const oldMessage =
+            await oldChannel.messages
+              .fetch(
+                config.honeypotMessageId
+              )
+              .catch(
+                () => null
+              );
+
+          if (oldMessage) {
+            await oldMessage.delete()
+              .catch(() => {});
+          }
+        }
+
+        config.honeypotChannelId =
+          null;
+
+        config.honeypotMessageId =
+          null;
 
         saveDatabase();
 
-        const embed = new EmbedBuilder()
-          .setColor(EMBED_COLOR)
-          .setTitle("Honeypot Disabled")
-          .setDescription(
-            "The AntiRaid honeypot has been disabled."
-          )
-          .setTimestamp();
-
         return interaction.reply({
-          embeds: [embed]
+          content:
+            "The honeypot has been disabled."
         });
       }
     }
@@ -657,11 +1337,14 @@ client.on(
        /lockdown
     ========================= */
 
-    if (interaction.commandName === "lockdown") {
+    if (
+      interaction.commandName ===
+      "lockdown"
+    ) {
       if (!isAdmin) {
         return interaction.reply({
           content:
-            "You need Manage Server to use this command.",
+            "You need Manage Server permission.",
           ephemeral: true
         });
       }
@@ -681,7 +1364,7 @@ client.on(
 
       return interaction.reply({
         content:
-          "Server lockdown activated.\n\nMembers can no longer send messages in the server."
+          "Server lockdown activated."
       });
     }
 
@@ -689,16 +1372,22 @@ client.on(
        /unlock
     ========================= */
 
-    if (interaction.commandName === "unlock") {
+    if (
+      interaction.commandName ===
+      "unlock"
+    ) {
       if (!isAdmin) {
         return interaction.reply({
           content:
-            "You need Manage Server to use this command.",
+            "You need Manage Server permission.",
           ephemeral: true
         });
       }
 
-      await endLockdown(guild, false);
+      await endLockdown(
+        guild,
+        false
+      );
 
       return interaction.reply({
         content:
@@ -710,11 +1399,14 @@ client.on(
        /raidmode
     ========================= */
 
-    if (interaction.commandName === "raidmode") {
+    if (
+      interaction.commandName ===
+      "raidmode"
+    ) {
       if (!isAdmin) {
         return interaction.reply({
           content:
-            "You need Manage Server to use this command.",
+            "You need Manage Server permission.",
           ephemeral: true
         });
       }
@@ -724,7 +1416,8 @@ client.on(
           "enabled"
         );
 
-      config.enabled = enabled;
+      config.enabled =
+        enabled;
 
       saveDatabase();
 
@@ -740,7 +1433,10 @@ client.on(
        /kick
     ========================= */
 
-    if (interaction.commandName === "kick") {
+    if (
+      interaction.commandName ===
+      "kick"
+    ) {
       if (
         !interaction.memberPermissions?.has(
           PermissionFlagsBits.KickMembers
@@ -754,16 +1450,22 @@ client.on(
       }
 
       const user =
-        interaction.options.getUser("user");
+        interaction.options.getUser(
+          "user"
+        );
 
       const reason =
-        interaction.options.getString("reason") ||
+        interaction.options.getString(
+          "reason"
+        ) ||
         "No reason provided.";
 
       const member =
         await guild.members.fetch(
           user.id
-        ).catch(() => null);
+        ).catch(
+          () => null
+        );
 
       if (!member) {
         return interaction.reply({
@@ -781,7 +1483,9 @@ client.on(
         });
       }
 
-      await member.kick(reason);
+      await member.kick(
+        reason
+      );
 
       return interaction.reply({
         content:
@@ -793,7 +1497,10 @@ client.on(
        /ban
     ========================= */
 
-    if (interaction.commandName === "ban") {
+    if (
+      interaction.commandName ===
+      "ban"
+    ) {
       if (
         !interaction.memberPermissions?.has(
           PermissionFlagsBits.BanMembers
@@ -807,18 +1514,27 @@ client.on(
       }
 
       const user =
-        interaction.options.getUser("user");
+        interaction.options.getUser(
+          "user"
+        );
 
       const reason =
-        interaction.options.getString("reason") ||
+        interaction.options.getString(
+          "reason"
+        ) ||
         "No reason provided.";
 
       const member =
         await guild.members.fetch(
           user.id
-        ).catch(() => null);
+        ).catch(
+          () => null
+        );
 
-      if (member && !member.bannable) {
+      if (
+        member &&
+        !member.bannable
+      ) {
         return interaction.reply({
           content:
             "I cannot ban that member. Check my role position and permissions.",
@@ -840,10 +1556,88 @@ client.on(
     }
 
     /* =========================
+       /unban
+    ========================= */
+
+    if (
+      interaction.commandName ===
+      "unban"
+    ) {
+      if (
+        !interaction.memberPermissions?.has(
+          PermissionFlagsBits.BanMembers
+        )
+      ) {
+        return interaction.reply({
+          content:
+            "You need Ban Members permission.",
+          ephemeral: true
+        });
+      }
+
+      const userId =
+        interaction.options.getString(
+          "user"
+        );
+
+      const reason =
+        interaction.options.getString(
+          "reason"
+        ) ||
+        "No reason provided.";
+
+      if (
+        !/^\d{17,20}$/.test(
+          userId
+        )
+      ) {
+        return interaction.reply({
+          content:
+            "Please provide a valid Discord user ID.",
+          ephemeral: true
+        });
+      }
+
+      const ban =
+        await guild.bans.fetch(
+          userId
+        ).catch(
+          () => null
+        );
+
+      if (!ban) {
+        return interaction.reply({
+          content:
+            "That user is not currently banned.",
+          ephemeral: true
+        });
+      }
+
+      await guild.members.unban(
+        userId,
+        reason
+      );
+
+      await securityLog(
+        guild,
+        "Member Unbanned",
+        `User ID: ${userId}\nModerator: <@${interaction.user.id}>\nReason: ${reason}`
+      );
+
+      return interaction.reply({
+        content:
+          `User ${userId} has been unbanned.\nReason: ${reason}`
+      });
+    }
+
+    /* =========================
        /timeout
     ========================= */
 
-    if (interaction.commandName === "timeout") {
+    if (
+      interaction.commandName ===
+      "timeout"
+    ) {
       if (
         !interaction.memberPermissions?.has(
           PermissionFlagsBits.ModerateMembers
@@ -857,7 +1651,9 @@ client.on(
       }
 
       const user =
-        interaction.options.getUser("user");
+        interaction.options.getUser(
+          "user"
+        );
 
       const minutes =
         interaction.options.getInteger(
@@ -865,13 +1661,17 @@ client.on(
         );
 
       const reason =
-        interaction.options.getString("reason") ||
+        interaction.options.getString(
+          "reason"
+        ) ||
         "No reason provided.";
 
       const member =
         await guild.members.fetch(
           user.id
-        ).catch(() => null);
+        ).catch(
+          () => null
+        );
 
       if (!member) {
         return interaction.reply({
@@ -904,7 +1704,10 @@ client.on(
        /untimeout
     ========================= */
 
-    if (interaction.commandName === "untimeout") {
+    if (
+      interaction.commandName ===
+      "untimeout"
+    ) {
       if (
         !interaction.memberPermissions?.has(
           PermissionFlagsBits.ModerateMembers
@@ -918,12 +1721,16 @@ client.on(
       }
 
       const user =
-        interaction.options.getUser("user");
+        interaction.options.getUser(
+          "user"
+        );
 
       const member =
         await guild.members.fetch(
           user.id
-        ).catch(() => null);
+        ).catch(
+          () => null
+        );
 
       if (!member) {
         return interaction.reply({
@@ -945,7 +1752,10 @@ client.on(
        /warn
     ========================= */
 
-    if (interaction.commandName === "warn") {
+    if (
+      interaction.commandName ===
+      "warn"
+    ) {
       if (!isAdmin) {
         return interaction.reply({
           content:
@@ -955,20 +1765,34 @@ client.on(
       }
 
       const user =
-        interaction.options.getUser("user");
+        interaction.options.getUser(
+          "user"
+        );
 
       const reason =
-        interaction.options.getString("reason") ||
+        interaction.options.getString(
+          "reason"
+        ) ||
         "No reason provided.";
 
-      if (!config.warnings[user.id]) {
-        config.warnings[user.id] = [];
+      if (
+        !config.warnings[
+          user.id
+        ]
+      ) {
+        config.warnings[
+          user.id
+        ] = [];
       }
 
-      config.warnings[user.id].push({
+      config.warnings[
+        user.id
+      ].push({
         reason,
-        moderator: interaction.user.tag,
-        timestamp: Date.now()
+        moderator:
+          interaction.user.tag,
+        timestamp:
+          Date.now()
       });
 
       saveDatabase();
@@ -983,14 +1807,23 @@ client.on(
        /warnings
     ========================= */
 
-    if (interaction.commandName === "warnings") {
+    if (
+      interaction.commandName ===
+      "warnings"
+    ) {
       const user =
-        interaction.options.getUser("user");
+        interaction.options.getUser(
+          "user"
+        );
 
       const warnings =
-        config.warnings[user.id] || [];
+        config.warnings[
+          user.id
+        ] || [];
 
-      if (warnings.length === 0) {
+      if (
+        warnings.length === 0
+      ) {
         return interaction.reply({
           content:
             `${user.tag} has no warnings.`
@@ -1005,11 +1838,16 @@ client.on(
           )
           .join("\n\n");
 
-      const embed = new EmbedBuilder()
-        .setColor(EMBED_COLOR)
-        .setTitle(`Warnings — ${user.tag}`)
-        .setDescription(description)
-        .setTimestamp();
+      const embed =
+        new EmbedBuilder()
+          .setColor(EMBED_COLOR)
+          .setTitle(
+            `Warnings — ${user.tag}`
+          )
+          .setDescription(
+            description
+          )
+          .setTimestamp();
 
       return interaction.reply({
         embeds: [embed]
@@ -1020,7 +1858,10 @@ client.on(
        /clear
     ========================= */
 
-    if (interaction.commandName === "clear") {
+    if (
+      interaction.commandName ===
+      "clear"
+    ) {
       if (
         !interaction.memberPermissions?.has(
           PermissionFlagsBits.ManageMessages
@@ -1055,7 +1896,10 @@ client.on(
        /slowmode
     ========================= */
 
-    if (interaction.commandName === "slowmode") {
+    if (
+      interaction.commandName ===
+      "slowmode"
+    ) {
       if (
         !interaction.memberPermissions?.has(
           PermissionFlagsBits.ManageChannels
@@ -1073,9 +1917,10 @@ client.on(
           "seconds"
         );
 
-      await interaction.channel.setRateLimitPerUser(
-        seconds
-      );
+      await interaction.channel
+        .setRateLimitPerUser(
+          seconds
+        );
 
       return interaction.reply({
         content:
@@ -1089,7 +1934,10 @@ client.on(
        /lock
     ========================= */
 
-    if (interaction.commandName === "lock") {
+    if (
+      interaction.commandName ===
+      "lock"
+    ) {
       if (
         !interaction.memberPermissions?.has(
           PermissionFlagsBits.ManageChannels
@@ -1102,12 +1950,14 @@ client.on(
         });
       }
 
-      await interaction.channel.permissionOverwrites.edit(
-        guild.roles.everyone,
-        {
-          SendMessages: false
-        }
-      );
+      await interaction.channel
+        .permissionOverwrites
+        .edit(
+          guild.roles.everyone,
+          {
+            SendMessages: false
+          }
+        );
 
       return interaction.reply({
         content:
@@ -1135,12 +1985,14 @@ client.on(
         });
       }
 
-      await interaction.channel.permissionOverwrites.edit(
-        guild.roles.everyone,
-        {
-          SendMessages: null
-        }
-      );
+      await interaction.channel
+        .permissionOverwrites
+        .edit(
+          guild.roles.everyone,
+          {
+            SendMessages: null
+          }
+        );
 
       return interaction.reply({
         content:
@@ -1169,7 +2021,8 @@ client.on(
           "channel"
         );
 
-      config.logChannelId = channel.id;
+      config.logChannelId =
+        channel.id;
 
       saveDatabase();
 
@@ -1187,34 +2040,42 @@ client.on(
       interaction.commandName ===
       "serverinfo"
     ) {
-      const embed = new EmbedBuilder()
-        .setColor(EMBED_COLOR)
-        .setTitle(guild.name)
-        .addFields(
-          {
-            name: "Owner",
-            value: `<@${guild.ownerId}>`,
-            inline: true
-          },
-          {
-            name: "Members",
-            value: `${guild.memberCount}`,
-            inline: true
-          },
-          {
-            name: "Channels",
-            value: `${guild.channels.cache.size}`,
-            inline: true
-          },
-          {
-            name: "Created",
-            value: `<t:${Math.floor(
-              guild.createdTimestamp / 1000
-            )}:F>`,
-            inline: false
-          }
-        )
-        .setTimestamp();
+      const embed =
+        new EmbedBuilder()
+          .setColor(EMBED_COLOR)
+          .setTitle(
+            guild.name
+          )
+          .addFields(
+            {
+              name: "Owner",
+              value:
+                `<@${guild.ownerId}>`,
+              inline: true
+            },
+            {
+              name: "Members",
+              value:
+                `${guild.memberCount}`,
+              inline: true
+            },
+            {
+              name: "Channels",
+              value:
+                `${guild.channels.cache.size}`,
+              inline: true
+            },
+            {
+              name: "Created",
+              value:
+                `<t:${Math.floor(
+                  guild.createdTimestamp /
+                  1000
+                )}:F>`,
+              inline: false
+            }
+          )
+          .setTimestamp();
 
       return interaction.reply({
         embeds: [embed]
@@ -1230,42 +2091,57 @@ client.on(
       "userinfo"
     ) {
       const user =
-        interaction.options.getUser("user") ||
+        interaction.options.getUser(
+          "user"
+        ) ||
         interaction.user;
 
       const member =
         await guild.members.fetch(
           user.id
-        ).catch(() => null);
+        ).catch(
+          () => null
+        );
 
-      const embed = new EmbedBuilder()
-        .setColor(EMBED_COLOR)
-        .setTitle(user.tag)
-        .setThumbnail(
-          user.displayAvatarURL()
-        )
-        .addFields(
-          {
-            name: "User ID",
-            value: user.id,
-            inline: false
-          },
-          {
-            name: "Account Created",
-            value: `<t:${Math.floor(
-              user.createdTimestamp / 1000
-            )}:F>`,
-            inline: false
-          }
-        )
-        .setTimestamp();
+      const embed =
+        new EmbedBuilder()
+          .setColor(EMBED_COLOR)
+          .setTitle(
+            user.tag
+          )
+          .setThumbnail(
+            user.displayAvatarURL()
+          )
+          .addFields(
+            {
+              name:
+                "User ID",
+              value:
+                user.id,
+              inline: false
+            },
+            {
+              name:
+                "Account Created",
+              value:
+                `<t:${Math.floor(
+                  user.createdTimestamp /
+                  1000
+                )}:F>`,
+              inline: false
+            }
+          )
+          .setTimestamp();
 
       if (member) {
         embed.addFields({
-          name: "Joined Server",
-          value: `<t:${Math.floor(
-            member.joinedTimestamp / 1000
-          )}:F>`,
+          name:
+            "Joined Server",
+          value:
+            `<t:${Math.floor(
+              member.joinedTimestamp /
+              1000
+            )}:F>`,
           inline: false
         });
       }
