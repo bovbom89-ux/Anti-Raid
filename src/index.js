@@ -5,7 +5,6 @@ const path = require("path");
 const {
   Client,
   GatewayIntentBits,
-  ChannelType,
   EmbedBuilder,
   PermissionFlagsBits
 } = require("discord.js");
@@ -67,6 +66,165 @@ async function securityLog(guild, title, description) {
 
   if (!config.logChannelId) return;
 
-  const channel = guild.channels.cache.get(config.logChannelId);
+  const channel = guild.channels.cache.get(
+    config.logChannelId
+  );
 
   if (!channel || !channel.isTextBased()) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🛡️ ${title}`)
+    .setDescription(description)
+    .setTimestamp()
+    .setFooter({
+      text: "AntiRaid Security"
+    });
+
+  await channel.send({
+    embeds: [embed]
+  }).catch(() => {});
+}
+
+async function startLockdown(guild, reason) {
+  const config = getConfig(guild.id);
+
+  if (config.lockdown) return;
+
+  config.lockdown = true;
+  config.lockdownUntil =
+    Date.now() +
+    config.lockdownMinutes * 60 * 1000;
+
+  saveDatabase();
+
+  await securityLog(
+    guild,
+    "🚨 RAID DETECTED",
+    `${reason}\n\n🔒 **Automatic lockdown activated.**`
+  );
+
+  console.log(
+    `Lockdown activated in ${guild.name}`
+  );
+}
+
+async function endLockdown(guild) {
+  const config = getConfig(guild.id);
+
+  if (!config.lockdown) return;
+
+  config.lockdown = false;
+  config.lockdownUntil = 0;
+
+  saveDatabase();
+
+  await securityLog(
+    guild,
+    "🔓 LOCKDOWN ENDED",
+    "The AntiRaid lockdown timer has expired."
+  );
+
+  console.log(
+    `Lockdown ended in ${guild.name}`
+  );
+}
+
+setInterval(async () => {
+  const now = Date.now();
+
+  for (const guild of client.guilds.cache.values()) {
+    const config = getConfig(guild.id);
+
+    if (
+      config.lockdown &&
+      config.lockdownUntil &&
+      now >= config.lockdownUntil
+    ) {
+      await endLockdown(guild);
+    }
+  }
+}, 15000);
+
+client.once("ready", () => {
+  console.log(
+    `🛡️ AntiRaid is online as ${client.user.tag}`
+  );
+
+  console.log(
+    `Serving ${client.guilds.cache.size} server(s).`
+  );
+});
+
+client.on("guildMemberAdd", async member => {
+  const guild = member.guild;
+  const config = getConfig(guild.id);
+
+  if (!config.enabled) return;
+
+  const now = Date.now();
+
+  const previous =
+    joinHistory.get(guild.id) || [];
+
+  const recent = previous.filter(
+    timestamp =>
+      now - timestamp <
+      config.joinWindowSeconds * 1000
+  );
+
+  recent.push(now);
+
+  joinHistory.set(
+    guild.id,
+    recent
+  );
+
+  console.log(
+    `${member.user.tag} joined ${guild.name}`
+  );
+
+  if (
+    recent.length >= config.joinThreshold &&
+    !config.lockdown
+  ) {
+    await startLockdown(
+      guild,
+      `**${recent.length} members joined within ${config.joinWindowSeconds} seconds.**`
+    );
+  }
+
+  if (config.lockdown) {
+    await securityLog(
+      guild,
+      "MEMBER JOINED DURING LOCKDOWN",
+      `**${member.user.tag}** joined while AntiRaid lockdown was active.`
+    );
+  }
+});
+
+client.on("guildCreate", guild => {
+  getConfig(guild.id);
+
+  console.log(
+    `AntiRaid joined ${guild.name}`
+  );
+});
+
+process.on("unhandledRejection", error => {
+  console.error(
+    "Unhandled promise rejection:",
+    error
+  );
+});
+
+if (!process.env.DISCORD_TOKEN) {
+  console.error(
+    "❌ DISCORD_TOKEN is missing."
+  );
+
+  process.exit(1);
+}
+
+client.login(
+  process.env.DISCORD_TOKEN
+);
