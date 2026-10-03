@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const fs = require("fs");
 const path = require("path");
+
 const {
   Client,
   GatewayIntentBits,
@@ -18,7 +19,9 @@ if (!fs.existsSync(DATA_DIR)) {
 
 function loadDatabase() {
   try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    return JSON.parse(
+      fs.readFileSync(DATA_FILE, "utf8")
+    );
   } catch {
     return {};
   }
@@ -45,7 +48,10 @@ const DEFAULT_CONFIG = {
 
 function getConfig(guildId) {
   if (!database[guildId]) {
-    database[guildId] = { ...DEFAULT_CONFIG };
+    database[guildId] = {
+      ...DEFAULT_CONFIG
+    };
+
     saveDatabase();
   }
 
@@ -61,16 +67,32 @@ const client = new Client({
 
 const joinHistory = new Map();
 
-async function securityLog(guild, title, description) {
+/* =========================
+   SECURITY LOGGING
+========================= */
+
+async function securityLog(
+  guild,
+  title,
+  description
+) {
   const config = getConfig(guild.id);
 
-  if (!config.logChannelId) return;
+  if (!config.logChannelId) {
+    return;
+  }
 
-  const channel = guild.channels.cache.get(
-    config.logChannelId
-  );
+  const channel =
+    guild.channels.cache.get(
+      config.logChannelId
+    );
 
-  if (!channel || !channel.isTextBased()) return;
+  if (
+    !channel ||
+    !channel.isTextBased()
+  ) {
+    return;
+  }
 
   const embed = new EmbedBuilder()
     .setTitle(`🛡️ ${title}`)
@@ -80,20 +102,34 @@ async function securityLog(guild, title, description) {
       text: "AntiRaid Security"
     });
 
-  await channel.send({
-    embeds: [embed]
-  }).catch(() => {});
+  await channel
+    .send({
+      embeds: [embed]
+    })
+    .catch(() => {});
 }
 
-async function startLockdown(guild, reason) {
+/* =========================
+   LOCKDOWN
+========================= */
+
+async function startLockdown(
+  guild,
+  reason
+) {
   const config = getConfig(guild.id);
 
-  if (config.lockdown) return;
+  if (config.lockdown) {
+    return;
+  }
 
   config.lockdown = true;
+
   config.lockdownUntil =
     Date.now() +
-    config.lockdownMinutes * 60 * 1000;
+    config.lockdownMinutes *
+      60 *
+      1000;
 
   saveDatabase();
 
@@ -108,10 +144,15 @@ async function startLockdown(guild, reason) {
   );
 }
 
-async function endLockdown(guild) {
+async function endLockdown(
+  guild,
+  automatic = true
+) {
   const config = getConfig(guild.id);
 
-  if (!config.lockdown) return;
+  if (!config.lockdown) {
+    return;
+  }
 
   config.lockdown = false;
   config.lockdownUntil = 0;
@@ -121,7 +162,9 @@ async function endLockdown(guild) {
   await securityLog(
     guild,
     "🔓 LOCKDOWN ENDED",
-    "The AntiRaid lockdown timer has expired."
+    automatic
+      ? "The automatic lockdown timer has expired."
+      : "A server administrator ended the lockdown."
   );
 
   console.log(
@@ -129,102 +172,227 @@ async function endLockdown(guild) {
   );
 }
 
-setInterval(async () => {
-  const now = Date.now();
+/* =========================
+   LOCKDOWN TIMER
+========================= */
 
-  for (const guild of client.guilds.cache.values()) {
-    const config = getConfig(guild.id);
+setInterval(
+  async () => {
+    const now = Date.now();
+
+    for (
+      const guild of client.guilds.cache.values()
+    ) {
+      const config =
+        getConfig(guild.id);
+
+      if (
+        config.lockdown &&
+        config.lockdownUntil &&
+        now >= config.lockdownUntil
+      ) {
+        await endLockdown(
+          guild,
+          true
+        );
+      }
+    }
+  },
+  15000
+);
+
+/* =========================
+   BOT READY
+========================= */
+
+client.once(
+  "ready",
+  () => {
+    console.log(
+      `🛡️ AntiRaid is online as ${client.user.tag}`
+    );
+
+    console.log(
+      `Serving ${client.guilds.cache.size} server(s).`
+    );
+  }
+);
+
+/* =========================
+   MEMBER JOIN DETECTION
+========================= */
+
+client.on(
+  "guildMemberAdd",
+  async member => {
+    const guild = member.guild;
+
+    const config =
+      getConfig(guild.id);
+
+    if (!config.enabled) {
+      return;
+    }
+
+    const now = Date.now();
+
+    const previous =
+      joinHistory.get(
+        guild.id
+      ) || [];
+
+    const recent =
+      previous.filter(
+        timestamp =>
+          now - timestamp <
+          config.joinWindowSeconds *
+            1000
+      );
+
+    recent.push(now);
+
+    joinHistory.set(
+      guild.id,
+      recent
+    );
+
+    console.log(
+      `${member.user.tag} joined ${guild.name}`
+    );
 
     if (
-      config.lockdown &&
-      config.lockdownUntil &&
-      now >= config.lockdownUntil
+      recent.length >=
+        config.joinThreshold &&
+      !config.lockdown
     ) {
-      await endLockdown(guild);
+      await startLockdown(
+        guild,
+        `**${recent.length} members joined within ${config.joinWindowSeconds} seconds.**`
+      );
+    }
+
+    if (config.lockdown) {
+      await securityLog(
+        guild,
+        "MEMBER JOINED DURING LOCKDOWN",
+        `**${member.user.tag}** joined while AntiRaid lockdown was active.`
+      );
     }
   }
-}, 15000);
-
-client.once("ready", () => {
-  console.log(
-    `🛡️ AntiRaid is online as ${client.user.tag}`
-  );
-
-  console.log(
-    `Serving ${client.guilds.cache.size} server(s).`
-  );
-});
-
-client.on("guildMemberAdd", async member => {
-  const guild = member.guild;
-  const config = getConfig(guild.id);
-
-  if (!config.enabled) return;
-
-  const now = Date.now();
-
-  const previous =
-    joinHistory.get(guild.id) || [];
-
-  const recent = previous.filter(
-    timestamp =>
-      now - timestamp <
-      config.joinWindowSeconds * 1000
-  );
-
-  recent.push(now);
-
-  joinHistory.set(
-    guild.id,
-    recent
-  );
-
-  console.log(
-    `${member.user.tag} joined ${guild.name}`
-  );
-
-  if (
-    recent.length >= config.joinThreshold &&
-    !config.lockdown
-  ) {
-    await startLockdown(
-      guild,
-      `**${recent.length} members joined within ${config.joinWindowSeconds} seconds.**`
-    );
-  }
-
-  if (config.lockdown) {
-    await securityLog(
-      guild,
-      "MEMBER JOINED DURING LOCKDOWN",
-      `**${member.user.tag}** joined while AntiRaid lockdown was active.`
-    );
-  }
-});
-
-client.on("guildCreate", guild => {
-  getConfig(guild.id);
-
-  console.log(
-    `AntiRaid joined ${guild.name}`
-  );
-});
-
-process.on("unhandledRejection", error => {
-  console.error(
-    "Unhandled promise rejection:",
-    error
-  );
-});
-
-if (!process.env.DISCORD_TOKEN) {
-  console.error(
-    "❌ DISCORD_TOKEN is missing."
-  );
-
-  process.exit(1);
-}
-
-client.login(
-  process.env.DISCORD_TOKEN
 );
+
+/* =========================
+   SLASH COMMANDS
+========================= */
+
+client.on(
+  "interactionCreate",
+  async interaction => {
+    if (
+      !interaction.isChatInputCommand()
+    ) {
+      return;
+    }
+
+    if (!interaction.guild) {
+      return interaction.reply({
+        content:
+          "❌ This command can only be used inside a server.",
+        ephemeral: true
+      });
+    }
+
+    const guild =
+      interaction.guild;
+
+    const config =
+      getConfig(guild.id);
+
+    const isAdmin =
+      interaction.memberPermissions?.has(
+        PermissionFlagsBits.ManageGuild
+      );
+
+    /*
+     * /setup
+     */
+
+    if (
+      interaction.commandName ===
+      "setup"
+    ) {
+      if (!isAdmin) {
+        return interaction.reply({
+          content:
+            "❌ You need **Manage Server** to use this command.",
+          ephemeral: true
+        });
+      }
+
+      config.enabled = true;
+
+      saveDatabase();
+
+      return interaction.reply({
+        content:
+          "🛡️ **AntiRaid has been set up!**\n\n" +
+          "Protection: **Enabled**\n" +
+          `Raid threshold: **${config.joinThreshold} joins / ${config.joinWindowSeconds} seconds**\n` +
+          `Lockdown duration: **${config.lockdownMinutes} minutes**`
+      });
+    }
+
+    /*
+     * /security
+     */
+
+    if (
+      interaction.commandName ===
+      "security"
+    ) {
+      const embed =
+        new EmbedBuilder()
+          .setTitle(
+            "🛡️ AntiRaid Security"
+          )
+          .setDescription(
+            config.enabled
+              ? "Protection is **enabled**."
+              : "Protection is **disabled**."
+          )
+          .addFields(
+            {
+              name:
+                "Raid Detection",
+              value:
+                `${config.joinThreshold} joins / ${config.joinWindowSeconds}s`,
+              inline: true
+            },
+            {
+              name:
+                "Lockdown",
+              value:
+                config.lockdown
+                  ? "🔴 ACTIVE"
+                  : "🟢 Inactive",
+              inline: true
+            },
+            {
+              name:
+                "Logs",
+              value:
+                config.logChannelId
+                  ? `<#${config.logChannelId}>`
+                  : "Not configured",
+              inline: true
+            }
+          )
+          .setTimestamp();
+
+      return interaction.reply({
+        embeds: [embed]
+      });
+    }
+
+    /*
+     * /
