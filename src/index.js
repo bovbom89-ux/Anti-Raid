@@ -1,19 +1,6 @@
 require("dotenv").config();
 
 const http = require("http");
-
-// Render Web Service health server
-const PORT = process.env.PORT || 10000;
-
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("AntiRaid is online.");
-});
-
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`🌐 AntiRaid web server listening on port ${PORT}`);
-});
-
 const fs = require("fs");
 const path = require("path");
 
@@ -28,16 +15,42 @@ const {
 
 const commands = require("./deploy-commands");
 
+/* =========================
+   RENDER WEB SERVICE
+========================= */
+
+const PORT = process.env.PORT || 10000;
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/plain"
+  });
+
+  res.end("AntiRaid is online.");
+});
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`AntiRaid web server listening on port ${PORT}`);
+});
+
+/* =========================
+   DATABASE
+========================= */
+
 const DATA_DIR = path.join(__dirname, "..", "data");
 const DATA_FILE = path.join(DATA_DIR, "guilds.json");
 
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(DATA_DIR, {
+    recursive: true
+  });
 }
 
 function loadDatabase() {
   try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    return JSON.parse(
+      fs.readFileSync(DATA_FILE, "utf8")
+    );
   } catch {
     return {};
   }
@@ -51,6 +64,10 @@ function saveDatabase() {
     JSON.stringify(database, null, 2)
   );
 }
+
+/* =========================
+   DEFAULT CONFIG
+========================= */
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -80,6 +97,10 @@ function getConfig(guildId) {
   return database[guildId];
 }
 
+/* =========================
+   DISCORD CLIENT
+========================= */
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -88,6 +109,12 @@ const client = new Client({
 });
 
 const joinHistory = new Map();
+
+/* =========================
+   EMBED COLOUR
+========================= */
+
+const EMBED_COLOR = "#062E61";
 
 /* =========================
    SECURITY LOGGING
@@ -109,7 +136,8 @@ async function securityLog(guild, title, description) {
   }
 
   const embed = new EmbedBuilder()
-    .setTitle(`🛡️ ${title}`)
+    .setColor(EMBED_COLOR)
+    .setTitle(title)
     .setDescription(description)
     .setTimestamp()
     .setFooter({
@@ -144,8 +172,8 @@ async function startLockdown(guild, reason) {
 
   await securityLog(
     guild,
-    "🚨 RAID DETECTED",
-    `${reason}\n\n🔒 **Automatic server lockdown activated.**`
+    "Raid Detected",
+    `${reason}\n\nServer lockdown has been automatically activated.`
   );
 
   console.log(
@@ -169,7 +197,7 @@ async function endLockdown(guild, automatic = true) {
 
   await securityLog(
     guild,
-    "🔓 LOCKDOWN ENDED",
+    "Lockdown Ended",
     automatic
       ? "The automatic lockdown timer has expired."
       : "A server administrator ended the lockdown."
@@ -188,7 +216,9 @@ async function lockServer(guild) {
   const channels = guild.channels.cache.filter(
     channel =>
       channel.isTextBased() &&
-      channel.permissionsFor(guild.roles.everyone)?.has(
+      channel.permissionsFor(
+        guild.roles.everyone
+      )?.has(
         PermissionFlagsBits.SendMessages
       )
   );
@@ -244,7 +274,7 @@ setInterval(async () => {
 
 client.once("ready", async () => {
   console.log(
-    `🛡️ AntiRaid is online as ${client.user.tag}`
+    `AntiRaid is online as ${client.user.tag}`
   );
 
   console.log(
@@ -254,10 +284,12 @@ client.once("ready", async () => {
   try {
     const rest = new REST({
       version: "10"
-    }).setToken(process.env.DISCORD_TOKEN);
+    }).setToken(
+      process.env.DISCORD_TOKEN
+    );
 
     console.log(
-      "🔄 Registering slash commands..."
+      "Registering slash commands..."
     );
 
     await rest.put(
@@ -270,11 +302,11 @@ client.once("ready", async () => {
     );
 
     console.log(
-      `✅ ${commands.length} slash commands registered.`
+      `${commands.length} slash commands registered.`
     );
   } catch (error) {
     console.error(
-      "❌ Failed to register slash commands:"
+      "Failed to register slash commands:"
     );
 
     console.error(error);
@@ -323,15 +355,15 @@ client.on(
     ) {
       await startLockdown(
         guild,
-        `**${recent.length} members joined within ${config.joinWindowSeconds} seconds.**`
+        `${recent.length} members joined within ${config.joinWindowSeconds} seconds.`
       );
     }
 
     if (config.lockdown) {
       await securityLog(
         guild,
-        "MEMBER JOINED DURING LOCKDOWN",
-        `**${member.user.tag}** joined while AntiRaid lockdown was active.`
+        "Member Joined During Lockdown",
+        `User ${member.user.tag} joined while AntiRaid lockdown was active.`
       );
     }
   }
@@ -351,7 +383,7 @@ client.on(
     if (!interaction.guild) {
       return interaction.reply({
         content:
-          "❌ This command can only be used inside a server.",
+          "This command can only be used inside a server.",
         ephemeral: true
       });
     }
@@ -364,13 +396,15 @@ client.on(
         PermissionFlagsBits.ManageGuild
       );
 
-    /* /setup */
+    /* =========================
+       /setup
+    ========================= */
 
     if (interaction.commandName === "setup") {
       if (!isAdmin) {
         return interaction.reply({
           content:
-            "❌ You need **Manage Server** to use this command.",
+            "You need Manage Server to use this command.",
           ephemeral: true
         });
       }
@@ -381,22 +415,25 @@ client.on(
 
       return interaction.reply({
         content:
-          "🛡️ **AntiRaid has been set up!**\n\n" +
-          "Protection: **Enabled**\n" +
-          `Raid threshold: **${config.joinThreshold} joins / ${config.joinWindowSeconds} seconds**\n` +
-          `Lockdown duration: **${config.lockdownMinutes} minutes**`
+          "AntiRaid has been set up.\n\n" +
+          "Protection: Enabled\n" +
+          `Raid threshold: ${config.joinThreshold} joins / ${config.joinWindowSeconds} seconds\n` +
+          `Lockdown duration: ${config.lockdownMinutes} minutes`
       });
     }
 
-    /* /security */
+    /* =========================
+       /security
+    ========================= */
 
     if (interaction.commandName === "security") {
       const embed = new EmbedBuilder()
-        .setTitle("🛡️ AntiRaid Security")
+        .setColor(EMBED_COLOR)
+        .setTitle("AntiRaid Security")
         .setDescription(
           config.enabled
-            ? "Protection is **enabled**."
-            : "Protection is **disabled**."
+            ? "Protection is enabled."
+            : "Protection is disabled."
         )
         .addFields(
           {
@@ -409,8 +446,8 @@ client.on(
             name: "Lockdown",
             value:
               config.lockdown
-                ? "🔴 ACTIVE"
-                : "🟢 Inactive",
+                ? "Active"
+                : "Inactive",
             inline: true
           },
           {
@@ -429,13 +466,15 @@ client.on(
       });
     }
 
-    /* /lockdown */
+    /* =========================
+       /lockdown
+    ========================= */
 
     if (interaction.commandName === "lockdown") {
       if (!isAdmin) {
         return interaction.reply({
           content:
-            "❌ You need **Manage Server** to use this command.",
+            "You need Manage Server to use this command.",
           ephemeral: true
         });
       }
@@ -443,7 +482,7 @@ client.on(
       if (config.lockdown) {
         return interaction.reply({
           content:
-            "🔒 The server is already in lockdown.",
+            "The server is already in lockdown.",
           ephemeral: true
         });
       }
@@ -455,17 +494,19 @@ client.on(
 
       return interaction.reply({
         content:
-          "🔒 **Server lockdown activated.**\n\nMembers can no longer send messages in the server."
+          "Server lockdown activated.\n\nMembers can no longer send messages in the server."
       });
     }
 
-    /* /unlock */
+    /* =========================
+       /unlock
+    ========================= */
 
     if (interaction.commandName === "unlock") {
       if (!isAdmin) {
         return interaction.reply({
           content:
-            "❌ You need **Manage Server** to use this command.",
+            "You need Manage Server to use this command.",
           ephemeral: true
         });
       }
@@ -474,17 +515,19 @@ client.on(
 
       return interaction.reply({
         content:
-          "🔓 **Server lockdown ended.**"
+          "Server lockdown ended."
       });
     }
 
-    /* /raidmode */
+    /* =========================
+       /raidmode
+    ========================= */
 
     if (interaction.commandName === "raidmode") {
       if (!isAdmin) {
         return interaction.reply({
           content:
-            "❌ You need **Manage Server** to use this command.",
+            "You need Manage Server to use this command.",
           ephemeral: true
         });
       }
@@ -501,20 +544,24 @@ client.on(
       return interaction.reply({
         content:
           enabled
-            ? "🛡️ Raid protection has been **enabled**."
-            : "⚠️ Raid protection has been **disabled**."
+            ? "Raid protection has been enabled."
+            : "Raid protection has been disabled."
       });
     }
 
-    /* /kick */
+    /* =========================
+       /kick
+    ========================= */
 
     if (interaction.commandName === "kick") {
-      if (!interaction.memberPermissions?.has(
-        PermissionFlagsBits.KickMembers
-      )) {
+      if (
+        !interaction.memberPermissions?.has(
+          PermissionFlagsBits.KickMembers
+        )
+      ) {
         return interaction.reply({
           content:
-            "❌ You need **Kick Members** permission.",
+            "You need Kick Members permission.",
           ephemeral: true
         });
       }
@@ -527,14 +574,14 @@ client.on(
         "No reason provided.";
 
       const member =
-        await guild.members.fetch(user.id).catch(
-          () => null
-        );
+        await guild.members.fetch(
+          user.id
+        ).catch(() => null);
 
       if (!member) {
         return interaction.reply({
           content:
-            "❌ That user is not in this server.",
+            "That user is not in this server.",
           ephemeral: true
         });
       }
@@ -542,7 +589,7 @@ client.on(
       if (!member.kickable) {
         return interaction.reply({
           content:
-            "❌ I cannot kick that member. Check my role position and permissions.",
+            "I cannot kick that member. Check my role position and permissions.",
           ephemeral: true
         });
       }
@@ -551,19 +598,23 @@ client.on(
 
       return interaction.reply({
         content:
-          `👢 **${user.tag}** has been kicked.\nReason: ${reason}`
+          `${user.tag} has been kicked.\nReason: ${reason}`
       });
     }
 
-    /* /ban */
+    /* =========================
+       /ban
+    ========================= */
 
     if (interaction.commandName === "ban") {
-      if (!interaction.memberPermissions?.has(
-        PermissionFlagsBits.BanMembers
-      )) {
+      if (
+        !interaction.memberPermissions?.has(
+          PermissionFlagsBits.BanMembers
+        )
+      ) {
         return interaction.reply({
           content:
-            "❌ You need **Ban Members** permission.",
+            "You need Ban Members permission.",
           ephemeral: true
         });
       }
@@ -576,14 +627,14 @@ client.on(
         "No reason provided.";
 
       const member =
-        await guild.members.fetch(user.id).catch(
-          () => null
-        );
+        await guild.members.fetch(
+          user.id
+        ).catch(() => null);
 
       if (member && !member.bannable) {
         return interaction.reply({
           content:
-            "❌ I cannot ban that member. Check my role position and permissions.",
+            "I cannot ban that member. Check my role position and permissions.",
           ephemeral: true
         });
       }
@@ -597,19 +648,23 @@ client.on(
 
       return interaction.reply({
         content:
-          `🔨 **${user.tag}** has been banned.\nReason: ${reason}`
+          `${user.tag} has been banned.\nReason: ${reason}`
       });
     }
 
-    /* /timeout */
+    /* =========================
+       /timeout
+    ========================= */
 
     if (interaction.commandName === "timeout") {
-      if (!interaction.memberPermissions?.has(
-        PermissionFlagsBits.ModerateMembers
-      )) {
+      if (
+        !interaction.memberPermissions?.has(
+          PermissionFlagsBits.ModerateMembers
+        )
+      ) {
         return interaction.reply({
           content:
-            "❌ You need **Moderate Members** permission.",
+            "You need Moderate Members permission.",
           ephemeral: true
         });
       }
@@ -627,14 +682,14 @@ client.on(
         "No reason provided.";
 
       const member =
-        await guild.members.fetch(user.id).catch(
-          () => null
-        );
+        await guild.members.fetch(
+          user.id
+        ).catch(() => null);
 
       if (!member) {
         return interaction.reply({
           content:
-            "❌ That user is not in this server.",
+            "That user is not in this server.",
           ephemeral: true
         });
       }
@@ -642,7 +697,7 @@ client.on(
       if (!member.moderatable) {
         return interaction.reply({
           content:
-            "❌ I cannot timeout that member.",
+            "I cannot timeout that member.",
           ephemeral: true
         });
       }
@@ -654,19 +709,23 @@ client.on(
 
       return interaction.reply({
         content:
-          `⏳ **${user.tag}** has been timed out for **${minutes} minutes**.\nReason: ${reason}`
+          `${user.tag} has been timed out for ${minutes} minutes.\nReason: ${reason}`
       });
     }
 
-    /* /untimeout */
+    /* =========================
+       /untimeout
+    ========================= */
 
     if (interaction.commandName === "untimeout") {
-      if (!interaction.memberPermissions?.has(
-        PermissionFlagsBits.ModerateMembers
-      )) {
+      if (
+        !interaction.memberPermissions?.has(
+          PermissionFlagsBits.ModerateMembers
+        )
+      ) {
         return interaction.reply({
           content:
-            "❌ You need **Moderate Members** permission.",
+            "You need Moderate Members permission.",
           ephemeral: true
         });
       }
@@ -675,14 +734,14 @@ client.on(
         interaction.options.getUser("user");
 
       const member =
-        await guild.members.fetch(user.id).catch(
-          () => null
-        );
+        await guild.members.fetch(
+          user.id
+        ).catch(() => null);
 
       if (!member) {
         return interaction.reply({
           content:
-            "❌ That user is not in this server.",
+            "That user is not in this server.",
           ephemeral: true
         });
       }
@@ -691,17 +750,19 @@ client.on(
 
       return interaction.reply({
         content:
-          `🔓 **${user.tag}** is no longer timed out.`
+          `${user.tag} is no longer timed out.`
       });
     }
 
-    /* /warn */
+    /* =========================
+       /warn
+    ========================= */
 
     if (interaction.commandName === "warn") {
       if (!isAdmin) {
         return interaction.reply({
           content:
-            "❌ You need **Manage Server** permission.",
+            "You need Manage Server permission.",
           ephemeral: true
         });
       }
@@ -727,11 +788,13 @@ client.on(
 
       return interaction.reply({
         content:
-          `⚠️ **${user.tag}** has been warned.\nReason: ${reason}`
+          `${user.tag} has been warned.\nReason: ${reason}`
       });
     }
 
-    /* /warnings */
+    /* =========================
+       /warnings
+    ========================= */
 
     if (interaction.commandName === "warnings") {
       const user =
@@ -743,7 +806,7 @@ client.on(
       if (warnings.length === 0) {
         return interaction.reply({
           content:
-            `✅ **${user.tag}** has no warnings.`
+            `${user.tag} has no warnings.`
         });
       }
 
@@ -756,7 +819,8 @@ client.on(
           .join("\n\n");
 
       const embed = new EmbedBuilder()
-        .setTitle(`⚠️ Warnings — ${user.tag}`)
+        .setColor(EMBED_COLOR)
+        .setTitle(`Warnings — ${user.tag}`)
         .setDescription(description)
         .setTimestamp();
 
@@ -765,15 +829,19 @@ client.on(
       });
     }
 
-    /* /clear */
+    /* =========================
+       /clear
+    ========================= */
 
     if (interaction.commandName === "clear") {
-      if (!interaction.memberPermissions?.has(
-        PermissionFlagsBits.ManageMessages
-      )) {
+      if (
+        !interaction.memberPermissions?.has(
+          PermissionFlagsBits.ManageMessages
+        )
+      ) {
         return interaction.reply({
           content:
-            "❌ You need **Manage Messages** permission.",
+            "You need Manage Messages permission.",
           ephemeral: true
         });
       }
@@ -791,20 +859,24 @@ client.on(
 
       return interaction.reply({
         content:
-          `🧹 Deleted **${deleted.size} messages**.`,
+          `Deleted ${deleted.size} messages.`,
         ephemeral: true
       });
     }
 
-    /* /slowmode */
+    /* =========================
+       /slowmode
+    ========================= */
 
     if (interaction.commandName === "slowmode") {
-      if (!interaction.memberPermissions?.has(
-        PermissionFlagsBits.ManageChannels
-      )) {
+      if (
+        !interaction.memberPermissions?.has(
+          PermissionFlagsBits.ManageChannels
+        )
+      ) {
         return interaction.reply({
           content:
-            "❌ You need **Manage Channels** permission.",
+            "You need Manage Channels permission.",
           ephemeral: true
         });
       }
@@ -821,20 +893,24 @@ client.on(
       return interaction.reply({
         content:
           seconds === 0
-            ? "🐌 Slowmode has been disabled."
-            : `🐌 Slowmode set to **${seconds} seconds**.`
+            ? "Slowmode has been disabled."
+            : `Slowmode set to ${seconds} seconds.`
       });
     }
 
-    /* /lock */
+    /* =========================
+       /lock
+    ========================= */
 
     if (interaction.commandName === "lock") {
-      if (!interaction.memberPermissions?.has(
-        PermissionFlagsBits.ManageChannels
-      )) {
+      if (
+        !interaction.memberPermissions?.has(
+          PermissionFlagsBits.ManageChannels
+        )
+      ) {
         return interaction.reply({
           content:
-            "❌ You need **Manage Channels** permission.",
+            "You need Manage Channels permission.",
           ephemeral: true
         });
       }
@@ -848,22 +924,26 @@ client.on(
 
       return interaction.reply({
         content:
-          "🔒 **This channel has been locked.**"
+          "This channel has been locked."
       });
     }
 
-    /* /unlockchannel */
+    /* =========================
+       /unlockchannel
+    ========================= */
 
     if (
       interaction.commandName ===
       "unlockchannel"
     ) {
-      if (!interaction.memberPermissions?.has(
-        PermissionFlagsBits.ManageChannels
-      )) {
+      if (
+        !interaction.memberPermissions?.has(
+          PermissionFlagsBits.ManageChannels
+        )
+      ) {
         return interaction.reply({
           content:
-            "❌ You need **Manage Channels** permission.",
+            "You need Manage Channels permission.",
           ephemeral: true
         });
       }
@@ -877,11 +957,13 @@ client.on(
 
       return interaction.reply({
         content:
-          "🔓 **This channel has been unlocked.**"
+          "This channel has been unlocked."
       });
     }
 
-    /* /setlogchannel */
+    /* =========================
+       /setlogchannel
+    ========================= */
 
     if (
       interaction.commandName ===
@@ -890,7 +972,7 @@ client.on(
       if (!isAdmin) {
         return interaction.reply({
           content:
-            "❌ You need **Manage Server** permission.",
+            "You need Manage Server permission.",
           ephemeral: true
         });
       }
@@ -906,18 +988,21 @@ client.on(
 
       return interaction.reply({
         content:
-          `📋 Security logs will now be sent to ${channel}.`
+          `Security logs will now be sent to ${channel}.`
       });
     }
 
-    /* /serverinfo */
+    /* =========================
+       /serverinfo
+    ========================= */
 
     if (
       interaction.commandName ===
       "serverinfo"
     ) {
       const embed = new EmbedBuilder()
-        .setTitle(`📊 ${guild.name}`)
+        .setColor(EMBED_COLOR)
+        .setTitle(guild.name)
         .addFields(
           {
             name: "Owner",
@@ -949,7 +1034,9 @@ client.on(
       });
     }
 
-    /* /userinfo */
+    /* =========================
+       /userinfo
+    ========================= */
 
     if (
       interaction.commandName ===
@@ -960,12 +1047,13 @@ client.on(
         interaction.user;
 
       const member =
-        await guild.members.fetch(user.id).catch(
-          () => null
-        );
+        await guild.members.fetch(
+          user.id
+        ).catch(() => null);
 
       const embed = new EmbedBuilder()
-        .setTitle(`👤 ${user.tag}`)
+        .setColor(EMBED_COLOR)
+        .setTitle(user.tag)
         .setThumbnail(
           user.displayAvatarURL()
         )
@@ -1008,7 +1096,7 @@ client.on(
 
 if (!process.env.DISCORD_TOKEN) {
   console.error(
-    "❌ DISCORD_TOKEN is missing."
+    "DISCORD_TOKEN is missing."
   );
 
   process.exit(1);
@@ -1016,7 +1104,7 @@ if (!process.env.DISCORD_TOKEN) {
 
 if (!process.env.DISCORD_CLIENT_ID) {
   console.error(
-    "❌ DISCORD_CLIENT_ID is missing."
+    "DISCORD_CLIENT_ID is missing."
   );
 
   process.exit(1);
