@@ -1,7 +1,7 @@
 {
   "name": "antiraid",
   "version": "1.0.0",
-  "description": "Discord anti-raid and server protection bot",
+  "description": "Discord AntiRaid moderation bot",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
