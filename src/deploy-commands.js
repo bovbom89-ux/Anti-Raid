@@ -72,7 +72,7 @@ const commands = [
     .addIntegerOption(option =>
       option
         .setName("minutes")
-        .setDescription("Timeout duration")
+        .setDescription("Timeout duration in minutes")
         .setMinValue(1)
         .setMaxValue(40320)
         .setRequired(true)
@@ -136,7 +136,7 @@ const commands = [
     .addIntegerOption(option =>
       option
         .setName("seconds")
-        .setDescription("Slowmode duration")
+        .setDescription("Slowmode duration in seconds")
         .setMinValue(0)
         .setMaxValue(21600)
         .setRequired(true)
